@@ -4,6 +4,7 @@ from testcontainers.postgres import PostgresContainer
 from sqlalchemy import create_engine
 import pandas as pd
 from target_crif.tests.sample_data import sample_dict, sample_fixed
+from datetime import datetime
 
 DATE = '20200420'
 CRIF_FI_CODE = 'F9541'
@@ -125,7 +126,7 @@ class TestPullCrifTable(unittest.TestCase):
                 schema='mart_compliance'
             )
 
-        self.crif_table = CrifTable(self.sample_table_name, 'customers', self.postgres_container.get_connection_url())
+        self.crif_table = CrifTable(self.sample_table_name, 'customers', datetime.now(), self.postgres_container.get_connection_url())
 
     def tearDown(self) -> None:
         self.postgres_container.stop()
@@ -136,6 +137,11 @@ class TestPullCrifTable(unittest.TestCase):
             assert crif_table.check_headers()
 
     def test_pull_table(self):
-        with self.crif_table as crif_table:
+        month_a = datetime.strptime('2020-02-01', '%Y-%m-%d')
+        month_b = datetime.strptime('2020-04-01', '%Y-%m-%d')
+        with CrifTable(self.sample_table_name, 'customers', month_a, self.postgres_container.get_connection_url()) as crif_table:
             crif_table.pull_table()
-            assert crif_table.table.shape == (7, 51)
+            assert crif_table.table.shape == (6, 51)
+        with CrifTable(self.sample_table_name, 'customers', month_b, self.postgres_container.get_connection_url()) as crif_table:
+            crif_table.pull_table()
+            assert crif_table.table.shape == (8, 51)

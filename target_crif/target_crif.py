@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 from dbt.config import read_profiles
 from logbook import Logger, StreamHandler
+from datetime import datetime
 import sys
 import click
 
@@ -513,13 +514,21 @@ class CrifDataFile:
         return [detail.line for detail in self.records]
 
 
+QUERY = """
+select * from mart_compliance.{} 
+where date_trunc('month', to_date(header__file_reference_date, 'DDMMYYYY')) 
+    = date_trunc('month', '{}'::date)
+"""
+
 class CrifTable:
 
-    def __init__(self, table_name, file_type, connection_url):
+    def __init__(self, table_name, file_type, month, connection_url):
         self.table_name = table_name
         self.file_type = file_type
         self.engine = create_engine(connection_url)
+        self.month = month
         self.headers = {}
+        self.table = None
 
     def __enter__(self):
         self.conn = self.engine.connect()
@@ -530,7 +539,7 @@ class CrifTable:
 
     def get_headers(self):
         df = pd.read_sql(
-            f"select * from mart_compliance.{self.table_name}",
+            QUERY.format(self.table_name, self.month.isoformat()),
             self.conn,
             chunksize=1
         )
@@ -551,7 +560,7 @@ class CrifTable:
 
     def pull_table(self):
         df = pd.read_sql(
-            f"select * from mart_compliance.{self.table_name}",
+            QUERY.format(self.table_name, self.month.isoformat()),
             self.conn
         )
         self.table = df
@@ -563,10 +572,11 @@ class CrifTable:
 @click.command()
 @click.option('--table-name', required=True, help='Name of the table containing the contribution.')
 @click.option('--file-type', required=True, help='Type of file to be contributed')
-@click.option('--date', required=True, help='Month to be contributed.')
+@click.option('--date', required=True, help='Date to be contributed in YYYY-MM-DD format. It will be truncated to the month.')
 @click.option('--dbt-profile', required=True, help='DBT profile target.')
 def create_file(table_name, file_type, date, dbt_profile):
-    with CrifTable(table_name, file_type, dbt_url_provider('airflow', dbt_profile)) as table:
+    parsed_date = datetime.strptime(date, '%Y-%m-%d')
+    with CrifTable(table_name, file_type, parsed_date, dbt_url_provider('airflow', dbt_profile)) as table:
         table.get_headers()
         if table.check_headers():
             data = table.pull_table_as_dicts()
