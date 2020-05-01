@@ -1,6 +1,6 @@
 from fixedwidth.fixedwidth import FixedWidth
 from sqlalchemy import create_engine
-from dbt.config import read_profiles
+from dbt.config.profile import Profile, read_profile, PROFILES_DIR
 from logbook import Logger, StreamHandler
 from datetime import datetime
 import sys
@@ -485,8 +485,16 @@ wrapping_columns = {
 
 
 def dbt_url_provider(profile, target):
-    target_profile = read_profiles()[profile]['outputs'][target]
-    return f"redshift+psycopg2://{target_profile['user']}:{target_profile['pass']}@{target_profile['host']}:{target_profile['port']}/{target_profile['dbname']}"
+    raw_profiles = read_profile(PROFILES_DIR)
+    profile = Profile.from_raw_profiles(
+        raw_profiles=raw_profiles,
+        profile_name=profile,
+        cli_vars={},
+        target_override=target,
+        threads_override=1
+    )
+    credentials = profile.credentials
+    return f"redshift+psycopg2://{credentials.user}:{credentials.password}@{credentials.host}:{credentials.port}/{credentials.database}"
 
 
 class CrifDataFile:
@@ -563,7 +571,7 @@ class CrifTable:
 @click.option('--table-name', required=True, help='Name of the table containing the contribution.')
 @click.option('--file-type', required=True, help='Type of file to be contributed')
 @click.option('--date', required=True, help='Date to be contributed in YYYY-MM-DD format. It will be truncated to the month.')
-@click.option('--dbt-profile', required=True, help='DBT profile target.')
+@click.option('--dbt-profile', required=False, help='DBT profile target.')
 def create_file(table_name, file_type, date, dbt_profile):
     parsed_date = datetime.strptime(date, '%Y-%m-%d')
     with CrifTable(table_name, file_type, parsed_date, dbt_url_provider('airflow', dbt_profile)) as table:
