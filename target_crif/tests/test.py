@@ -131,17 +131,12 @@ class TestPullCrifTable(unittest.TestCase):
     def tearDown(self) -> None:
         self.postgres_container.stop()
 
-    def test_header_checks(self):
-        with self.crif_table as crif_table:
-            crif_table.get_headers()
-            assert crif_table.check_headers()
-
     def test_pull_table(self):
         month_a = datetime.strptime('2020-02-01', '%Y-%m-%d')
         month_b = datetime.strptime('2020-04-01', '%Y-%m-%d')
         with CrifTable(self.sample_table_name, 'customers', month_a, self.postgres_container.get_connection_url()) as crif_table:
-            crif_table.pull_table()
-            assert crif_table.table.shape == (6, 51)
+            crif_table.pull_table_as_dicts()
+            assert len(crif_table.table) == 6
         with CrifTable(self.sample_table_name, 'customers', month_b, self.postgres_container.get_connection_url()) as crif_table:
-            crif_table.pull_table()
-            assert crif_table.table.shape == (8, 51)
+            crif_table.pull_table_as_dicts()
+            assert len(crif_table.table) == 8

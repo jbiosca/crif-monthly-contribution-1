@@ -1,5 +1,4 @@
 from fixedwidth.fixedwidth import FixedWidth
-import pandas as pd
 from sqlalchemy import create_engine
 from dbt.config import read_profiles
 from logbook import Logger, StreamHandler
@@ -520,6 +519,7 @@ where date_trunc('month', to_date(header__file_reference_date, 'DDMMYYYY'))
     = date_trunc('month', '{}'::date)
 """
 
+
 class CrifTable:
 
     def __init__(self, table_name, file_type, month, connection_url):
@@ -537,37 +537,27 @@ class CrifTable:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.conn.close()
 
-    def get_headers(self):
-        df = pd.read_sql(
-            QUERY.format(self.table_name, self.month.isoformat()),
-            self.conn,
-            chunksize=1
-        )
-        for chunk in df:
-            first_row = chunk.to_dict(orient='record')[0]
-            self.headers['headers'] = {k.split('__')[1]: v for (k, v) in first_row.items() if k.startswith('header__')}
-            self.headers['trailers'] = {k.split('__')[1]: v for (k, v) in first_row.items() if k.startswith('trailer__')}
+    def set_headers(self, first_row):
+        headers = {k.split('__')[1]: v for (k, v) in first_row.items() if k.startswith('header__')}
+        trailers = {k.split('__')[1]: v for (k, v) in first_row.items() if k.startswith('trailer__')}
+        if not set(headers.keys()) == set(wrapping_columns[self.file_type]['headers']):
+            raise Exception(
+                f"Invalid source table headers: {headers.keys()}. Expected {wrapping_columns[self.file_type]['headers']}")
+        if not set(trailers.keys()) == set(wrapping_columns[self.file_type]['trailers']):
+            raise Exception(
+                f"Invalid source table headers: {trailers.keys()}. Expected {wrapping_columns[self.file_type]['trailers']}")
 
-    def check_headers(self):
-        header_keys = self.headers['headers'].keys()
-        trailer_keys = self.headers['trailers'].keys()
-        if (set(header_keys) == set(wrapping_columns[self.file_type]['headers']) and
-                set(trailer_keys) == set(wrapping_columns[self.file_type]['trailers'])):
-            return True
-        else:
-            log.info(f"Invalid source table headers: {header_keys}. Expected {wrapping_columns[self.file_type]}")
-            return False
-
-    def pull_table(self):
-        df = pd.read_sql(
-            QUERY.format(self.table_name, self.month.isoformat()),
-            self.conn
-        )
-        self.table = df
+        self.headers['headers'] = headers
+        self.headers['trailers'] = trailers
 
     def pull_table_as_dicts(self):
-        self.pull_table()
-        return self.table.to_dict(orient='record')
+        result = self.conn.execute(QUERY.format(self.table_name, self.month.isoformat()))
+        columns = result.keys()
+        rows = [dict(zip(columns, row)) for row in result.fetchall()]
+        self.set_headers(rows[0])
+        self.table = rows
+        return rows
+
 
 @click.command()
 @click.option('--table-name', required=True, help='Name of the table containing the contribution.')
@@ -577,12 +567,8 @@ class CrifTable:
 def create_file(table_name, file_type, date, dbt_profile):
     parsed_date = datetime.strptime(date, '%Y-%m-%d')
     with CrifTable(table_name, file_type, parsed_date, dbt_url_provider('airflow', dbt_profile)) as table:
-        table.get_headers()
-        if table.check_headers():
-            data = table.pull_table_as_dicts()
-            headers = table.headers
-        else:
-            raise Exception('Invalid CRIF table')
+        data = table.pull_table_as_dicts()
+        headers = table.headers
 
     file = CrifDataFile(headers['headers'], headers['trailers'], data)
 
