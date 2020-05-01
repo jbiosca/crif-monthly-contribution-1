@@ -10,6 +10,7 @@ setup(
         'FixedWidth==1.3',
         'sqlalchemy-redshift==0.7.7',
         'dbt-core==0.13.1',
+        'dbt-redshift==0.13.1',
         'Logbook==1.5.3'
     ],
     tests_require=[
